@@ -13,11 +13,11 @@ if (await FS.exists(path)) {
 }
 
 function fansiHighlightJS(code) {
-    const fg = color => `\x1b[f[${color}]m`;
-    const reset = `\x1b[f[ffffff]m`;
+    const fg = color => `\x1bf[${color}m`;
+    const reset = `\x1bf[ffffffm`;
 
     return code
-        .replace(/(function|const|let|if|else|return|await)/g, `${fg("00ffff")}$1${reset}`)
+        .replace(/(function|const|let|if|else|return|await|true|false|switch|case)/g, `${fg("00ffff")}$1${reset}`)
         .replace(/(["'`].*?["'`])/g, `${fg("00ff00")}$1${reset}`)
         .replace(/(\/\/.*)/g, `${fg("888888")}$1${reset}`);
 }
