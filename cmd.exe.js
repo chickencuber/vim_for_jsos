@@ -12,7 +12,23 @@ if (await FS.exists(path)) {
     }
 }
 
-Shell.terminal.add(buffer);
+function fansiHighlightJS(code) {
+    const fg = color => `\x1b[f[${color}]m`;
+    const reset = `\x1b[f[ffffff]m`;
+
+    return code
+        .replace(/(function|const|let|if|else|return|await)/g, `${fg("00ffff")}$1${reset}`)
+        .replace(/(["'`].*?["'`])/g, `${fg("00ff00")}$1${reset}`)
+        .replace(/(\/\/.*)/g, `${fg("888888")}$1${reset}`);
+}
+
+function highlight(code) {
+    if(!Shell.supports_fansi) return code;
+    if(path.endsWith(".js") || path.endsWith(".exe")) return fansiHighlightJS(code);
+    return code;
+}
+
+Shell.terminal.add(highlight(buffer));
 
 
 let exit
