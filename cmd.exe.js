@@ -14,10 +14,18 @@ if (await FS.exists(path)) {
 
 Shell.terminal.add(buffer);
 
-Shell.keyPressed = (keycode, key) => {
 
+let exit
+
+const e = run(r => {
+    exit = r.bind(null, pre);
+});
+
+Shell.keyPressed = (keycode, key) => {
+    if(key == "q") {
+        exit();
+    }
 }
 
-return run(r => {
-    r(pre);
-})
+
+return await e;
