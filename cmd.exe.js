@@ -38,6 +38,37 @@ function add(buffer, str) {
     return buffer;
 }
 
+function del(buffer) {
+    const cursor = Shell.terminal.cursor;
+    const textArray = buffer
+        .split("\n")
+        .map((v) => v.split(""));
+
+    while (textArray.length <= cursor.y) {
+        textArray.push([]);
+    }
+
+    if (cursor.x === 0) {
+        if (cursor.y > 0) {
+            const deletedText = textArray.splice(cursor.y, 1)[0];
+            Shell.terminal.cursor.y--;
+            Shell.terminal.cursor.x = textArray[cursor.y].join("").length;
+
+            textArray[cursor.y].push(...deletedText);
+
+            buffer = (textArray.map((v) => v.join("")).join("\n"));
+        }
+        return buffer;
+    }
+
+    textArray[cursor.y].splice(cursor.x - 1, 1);
+
+    buffer = (textArray.map((v) => v.join("")).join("\n"));
+
+    cursor.x--;
+    return buffer;
+}
+
 const Keys = {
     n(code, key) {
         switch(key) {
@@ -45,7 +76,7 @@ const Keys = {
                 exit();
                 break;
             case "h":
-                Shell.terminal.cursor.x--;
+                if(Shell.terminal.cursor.x > 0) Shell.terminal.cursor.x--;
                 break;
             case "j":
                 Shell.terminal.cursor.y++;
@@ -69,12 +100,21 @@ const Keys = {
             return;
         }
         switch (code) {
+            case BACKSPACE:
+                buffer = del(buffer);
+                break
+            case ENTER:
+                buffer = add(buffer, "\n");
+                break;
+            case TAB:
+                buffer = add(buffer, "    ");
+                break;
             default:
                 if(key.length > 1) return;
                 buffer = add(buffer, key);
                 break;
         }
-        
+        Shell.terminal.text(highlight(buffer));
     }
 }
 
@@ -83,7 +123,6 @@ if (await FS.exists(path)) {
         return "path can't be a dir";
     } else {
         buffer = await FS.getFromPath(path);
-        Shell.terminal.text(highlight(buffer));
     }
 }
 
@@ -91,10 +130,19 @@ function fansiHighlightJS(code) {
     const fg = color => `\x1bf[${color}m`;
     const reset = `\x1bf[ffffffm`;
 
-    return code
-        .replace(/(function|const|let|if|else|return|await|true|false|switch|case)/g, `${fg("00ffff")}$1${reset}`)
-        .replace(/(["'`].*?["'`])/g, `${fg("00ff00")}$1${reset}`)
-        .replace(/(\/\/.*)/g, `${fg("888888")}$1${reset}`);
+    // Highlight multiline and single-line comments first
+    code = code.replace(/(\/\*[\s\S]*?\*\/)/g, `${fg("888888")}$1${reset}`);
+    code = code.replace(/(\/\/.*)/g, `${fg("888888")}$1${reset}`);
+
+    // Then strings (single, double, template)
+    code = code.replace(/(".*?(?<!\\)")/g, `${fg("00ff00")}$1${reset}`);
+    code = code.replace(/('.*?(?<!\\)')/g, `${fg("00ff00")}$1${reset}`);
+    code = code.replace(/(`[\s\S]*?`)/g, `${fg("00ff00")}$1${reset}`);
+
+    // Then keywords
+    code = code.replace(/\b(function|const|let|if|else|return|await|true|false|switch|case)\b/g, `${fg("00ffff")}$1${reset}`);
+
+    return code;
 }
 
 function highlight(code) {
