@@ -1,0 +1,1 @@
+Shell.terminal.add("hello");
