@@ -1,8 +1,8 @@
-const pre = Shell.terminal.text();
-Shell.terminal.clear();
 if (!args[0]) return "expected 1 argument";
 const path = args[0].toPath();
 let buffer = "";
+const pre = Shell.terminal.text();
+Shell.terminal.clear();
 
 if (await FS.exists(path)) {
     if (typeof (await FS.getFromPath(path)) === "object") {
