@@ -19,5 +19,5 @@ Shell.keyPressed = (keycode, key) => {
 }
 Shell.onExit = () => {
     Shell.terminal.clear();
-    Shell.terminal.text(pre);
+    return pre;
 }
