@@ -17,7 +17,7 @@ Shell.terminal.add(buffer);
 Shell.keyPressed = (keycode, key) => {
 
 }
-Shell.onExit = () => {
-    Shell.terminal.clear();
-    return pre;
-}
+
+return run(r => {
+    r(pre);
+})
