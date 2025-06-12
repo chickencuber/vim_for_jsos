@@ -12,7 +12,7 @@ if (await FS.exists(path)) {
     }
 }
 
-Shell.terminal.add(content);
+Shell.terminal.add(buffer);
 
 Shell.keyPressed = (keycode, key) => {
 
