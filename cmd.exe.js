@@ -34,7 +34,10 @@ Shell.terminal.add(highlight(buffer));
 let exit
 
 const e = run(r => {
-    exit = r.bind(null, pre);
+    exit = () => {
+        Shell.terminal.clear();
+        r(pre)
+    };
 });
 
 Shell.keyPressed = (keycode, key) => {
