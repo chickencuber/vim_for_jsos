@@ -12,6 +12,7 @@ Shell.terminal.scroll.allow = true;
 const Modes = {
     Normal: "n",
     Insert: "i",
+    Command: "c",
 };
 let exit
 let mode = Modes.Normal;
@@ -69,6 +70,26 @@ function del(buffer) {
     return buffer;
 }
 
+
+let commandBuffer = "";
+
+const Commands = {
+    async w() {
+        await FS.addFile(path, buffer); 
+    },
+    q() {
+        exit();
+    },
+    async wq() {
+        await Commands.w();
+        Commands.q();
+    },
+}
+
+function handleCommand(name, ...args) {
+    Commands[name]?.(...args);
+}
+
 const Keys = {
     n(code, key) {
         switch(code) {
@@ -86,9 +107,6 @@ const Keys = {
                 break
             default:
                 switch(key) {
-                    case "q":
-                        exit();
-                        break;
                     case "h":
                         if(cursor.x > 0) cursor.x--;
                         break;
@@ -110,9 +128,57 @@ const Keys = {
                         Shell.terminal.cursor.style = "pipe";
                         mode = Modes.Insert;
                         break
+                    case ":":
+                        mode = Modes.Command;
+                        commandBuffer = "";
+                        Shell.terminal.text(displayBuff(buffer, true));
+                        Shell.terminal.cursor.style = "underscore";
+                        break;
+                    case "0":
+                        cursor.x = 0;
+                        break
+                    case "^":
+                    case "_": {
+                        const str = buffer.split("\n")[cursor.y]; 
+                        const firstChar = str.match(/\S/); // \S = non-whitespace
+                        const firstIndex = firstChar ? firstChar.index : -1;
+                        cursor.x = Math.max(firstIndex);
+                    }
+                        break;
+                    case "$": {
+                        const str = buffer.split("\n")[cursor.y]; 
+                        const match = [...str.matchAll(/\S/g)].at(-1); // get last non-whitespace match
+                        cursor.x = match ? match.index : cursor.x;
+                    }
+                        break;
                 }
                 break;
         }
+    },
+    c(code, key) {
+        switch (code) {
+            case ESCAPE:
+                mode = Modes.Normal;
+                Shell.terminal.cursor.style = "block";
+                Shell.terminal.text(displayBuff(buffer));
+                return;
+            case ENTER:
+                handleCommand(...commandBuffer.trim().split(" "));
+                mode = Modes.Normal;
+                Shell.terminal.cursor.style = "block";
+                Shell.terminal.text(displayBuff(buffer));
+                return;
+            case BACKSPACE:
+                commandBuffer = commandBuffer.slice(0, -1);
+                break;
+            default:
+                if (key.length === 1) {
+                    commandBuffer += key;
+                }
+                break;
+        }
+
+        Shell.terminal.text(displayBuff(buffer, true, commandBuffer));
     },
     i(code, key) {
         switch (code) {
@@ -245,11 +311,14 @@ function fansiHighlight(code, rules) {
 function highlight(code) {
     if(!Shell.supports_fansi) return code;
     if(path.endsWith(".js") || path.endsWith(".exe")) return fansiHighlight(code, Highlighters.JS);
+    if(path.endsWith(".json")) return fansiHighlight(code, Highlighters.JSON);
     return code;
 }
 
+
+
 let cursorPad = 0;
-function displayBuff(buffer) {
+function displayBuff(buffer, e=false, buf="") {
     let isHighlight = Shell.supports_fansi;
     /**
         * @type {Array<any>}
@@ -257,15 +326,24 @@ function displayBuff(buffer) {
     const text =  highlight(buffer).split("\n");
     cursorPad = text.length.toString().length + 1;
     setCursor();
-    return text.map((v, i) => {
+    let t = text.map((v, i) => {
         if(isHighlight) {
              return push + reset +(i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+pop+v       
         } else {
             return (i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+v
         }
-    }).join("\n");
+    });
+    if(e) {
+        t = t.map((v, i) => {
+            if(i !== cursor.y) {
+                return v;
+            }
+            return " ".repeat(cursor.x + cursorPad) + (":" + buf);
+            ;
+        })
+    }
+    return t.join("\n")
 }
-
 Shell.terminal.text(displayBuff(buffer));
 cursor.x = 0;
 cursor.y = 0;
