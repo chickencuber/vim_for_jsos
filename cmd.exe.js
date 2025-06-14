@@ -1,5 +1,5 @@
 if (!args[0]) return "expected 1 argument";
-const path = args[0].toPath();
+const path = args[0].toPath(Shell);
 let buffer = "";
 const pre = Shell.terminal.text();
 Shell.terminal.clear();
@@ -17,7 +17,6 @@ let exit
 let mode = Modes.Normal;
 
 function add(buffer, str) {
-    const cursor = Shell.terminal.cursor;
     const arr = buffer
         .split("\n")
         .map((v) => v.split(""));
@@ -38,8 +37,9 @@ function add(buffer, str) {
     return buffer;
 }
 
+const cursor = {x: 0, y: 0};
+
 function del(buffer) {
-    const cursor = Shell.terminal.cursor;
     const textArray = buffer
         .split("\n")
         .map((v) => v.split(""));
@@ -51,8 +51,8 @@ function del(buffer) {
     if (cursor.x === 0) {
         if (cursor.y > 0) {
             const deletedText = textArray.splice(cursor.y, 1)[0];
-            Shell.terminal.cursor.y--;
-            Shell.terminal.cursor.x = textArray[cursor.y].join("").length;
+            cursor.y--;
+            cursor.x = textArray[cursor.y].join("").length;
 
             textArray[cursor.y].push(...deletedText);
 
@@ -71,35 +71,68 @@ function del(buffer) {
 
 const Keys = {
     n(code, key) {
-        switch(key) {
-            case "q":
-                exit();
+        switch(code) {
+            case LEFT_ARROW:
+                if(cursor.x > 0) cursor.x--;
                 break;
-            case "h":
-                if(Shell.terminal.cursor.x > 0) Shell.terminal.cursor.x--;
+            case DOWN_ARROW:
+                if(cursor.y < buffer.split("\n").length-1) cursor.y++;
                 break;
-            case "j":
-                Shell.terminal.cursor.y++;
+            case UP_ARROW:
+                if (cursor.y > 0) cursor.y--;
                 break;
-            case "k":
-                if (Shell.terminal.cursor.y > 0) Shell.terminal.cursor.y--;
-                break;
-            case "l":
-                Shell.terminal.cursor.x++;
-                break;
-            case "i":
-                Shell.terminal.cursor.style = "pipe";
-                mode = Modes.Insert;
+            case RIGHT_ARROW:
+                cursor.x++;
+                break
+            default:
+                switch(key) {
+                    case "q":
+                        exit();
+                        break;
+                    case "h":
+                        if(cursor.x > 0) cursor.x--;
+                        break;
+                    case "j":
+                        if(cursor.y < buffer.split("\n").length-1) cursor.y++;
+                        break;
+                    case "k":
+                        if (cursor.y > 0) cursor.y--;
+                        break;
+                    case "l":
+                        cursor.x++;
+                        break;
+                    case "i":
+                        Shell.terminal.cursor.style = "pipe";
+                        mode = Modes.Insert;
+                        break;
+                    case "a":
+                        cursor.x++;
+                        Shell.terminal.cursor.style = "pipe";
+                        mode = Modes.Insert;
+                        break
+                }
                 break;
         }
     },
     i(code, key) {
-        if(code === ESCAPE) {
-            Shell.terminal.cursor.style = "block";
-            mode = Modes.Normal;           
-            return;
-        }
         switch (code) {
+            case ESCAPE:
+                cursor.x--;
+                Shell.terminal.cursor.style = "block";
+                mode = Modes.Normal;           
+                break
+            case LEFT_ARROW:
+                if(cursor.x > 0) cursor.x--;
+                break;
+            case DOWN_ARROW:
+                cursor.y++;
+                break;
+            case UP_ARROW:
+                if (cursor.y > 0) cursor.y--;
+                break;
+            case RIGHT_ARROW:
+                if(cursor.y < buffer.split("\n").length-1) cursor.y++;
+                break
             case BACKSPACE:
                 buffer = del(buffer);
                 break
@@ -114,7 +147,7 @@ const Keys = {
                 buffer = add(buffer, key);
                 break;
         }
-        Shell.terminal.text(highlight(buffer));
+        Shell.terminal.text(displayBuff(buffer));
     }
 }
 
@@ -125,40 +158,128 @@ if (await FS.exists(path)) {
         buffer = await FS.getFromPath(path);
     }
 }
+const fg = color => `\x1bf[${color}m`;
+const reset = `\x1bf[ffffffm`;
+const push = `\x1ba[ffffffm`;
+const pop= `\x1br[ffffffm`;
 
-function fansiHighlightJS(code) {
-    const fg = color => `\x1bf[${color}m`;
-    const reset = `\x1bf[ffffffm`;
+const Highlighters = {
+    JS: [
+        // Block comments
+        [/(\/\*[\s\S]*?\*\/)/, `${fg("888888")}$1${reset}`],
+        // Line comments
+        [/(\/\/[^\n]*)/, `${fg("888888")}$1${reset}`],
+        // Template literals
+        [/(`(?:\\[\s\S]|[^\\`])*`)/, (m) => {
+            m = m.replaceAll(/((?<!\\)(?:\\\\)*\$\{[\s\S]*?\})/g, (_, a) => {
+                return `${push+reset}${fansiHighlight(a, Highlighters.JS)}${pop}`
+            }); 
+            return `${fg("00ff00")}${m}${reset}`
+        }],
+        // Double-quoted strings (no multiline)
+        [/("(?:(?:\\.)|[^\n\r"\\])*")/, `${fg("00ff00")}$1${reset}`],
 
-    // Highlight multiline and single-line comments first
-    code = code.replace(/(\/\*[\s\S]*?\*\/)/g, `${fg("888888")}$1${reset}`);
-    code = code.replace(/(\/\/.*)/g, `${fg("888888")}$1${reset}`);
+        // Single-quoted strings (no multiline)
+        [/('(?:(?:\\.)|[^\n\r'\\])*')/, `${fg("00ff00")}$1${reset}`],
+        [/\/(?!\/)(?:\\\/|[^\n\/])+\/[gimsuy]*/g, `${fg("ff8800")}$&${reset}`],
 
-    // Then strings (single, double, template)
-    code = code.replace(/(".*?(?<!\\)")/g, `${fg("00ff00")}$1${reset}`);
-    code = code.replace(/('.*?(?<!\\)')/g, `${fg("00ff00")}$1${reset}`);
-    code = code.replace(/(`[\s\S]*?`)/g, `${fg("00ff00")}$1${reset}`);
+        // Numbers (int, float, hex, binary)
+        [/(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/, `${fg("ff00ff")}$1${reset}`],
+        // Keywords
+        [/(break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|let|new|null|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)\b/, `${fg("00ffff")}$1${reset}`],
+        // Booleans
+        [/(true|false)\b/, `${fg("00ffff")}$1${reset}`],
+        // Operators
+        [/([+\-*/=<>!%&|^~?:]+)/, `${fg("ffff00")}$1${reset}`],
+        // Brackets
+        [/([()[\]{};,.])/, `${fg("ffaa00")}$1${reset}`],
+        // Fallback
+        [/([A-Za-z_$][A-Za-z_$0-9]*)/, "$1"],
+        [/(.)/, "$1"],
+    ],
+    JSON: [
+        [/("(?:(?:\\.)|[^\n\r"\\])*")/, `${fg("00ff00")}$1${reset}`],
 
-    // Then keywords
-    code = code.replace(/\b(function|const|let|if|else|return|await|true|false|switch|case)\b/g, `${fg("00ffff")}$1${reset}`);
+        // Numbers (int, float, hex, binary)
+        [/(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/, `${fg("ff00ff")}$1${reset}`],
+        [/(true|false)\b/, `${fg("00ffff")}$1${reset}`],
+        [/(true|false|null)\b/, `${fg("00ffff")}$1${reset}`],
+        // Brackets
+        [/([()[\]{},])/, `${fg("ffaa00")}$1${reset}`],
+        [/(.)/, "$1"],
+    ]
+};
 
-    return code;
+function fansiHighlight(code, rules) {
+    let output = "";
+    let index = 0;
+
+    while (index < code.length) {
+        let earliestMatch = null;
+        let earliestIndex = Infinity;
+        let replacement = null;
+
+        for (const [regex, repl] of rules) {
+            regex.lastIndex = 0; // reset state for global/multiline regex
+            const match = regex.exec(code.slice(index));
+            if (match && match.index < earliestIndex) {
+                earliestMatch = match;
+                earliestIndex = match.index;
+                replacement =  match[0].replace(regex, repl);
+            }
+        }
+
+        if (!earliestMatch) {
+            output += code.slice(index);
+            break;
+        }
+
+        output += code.slice(index, index + earliestIndex); // unhighlighted part
+        output += replacement;
+        index += earliestIndex + earliestMatch[0].length;
+    }
+
+    return output;
 }
 
 function highlight(code) {
     if(!Shell.supports_fansi) return code;
-    if(path.endsWith(".js") || path.endsWith(".exe")) return fansiHighlightJS(code);
+    if(path.endsWith(".js") || path.endsWith(".exe")) return fansiHighlight(code, Highlighters.JS);
     return code;
 }
 
-Shell.terminal.add(highlight(buffer));
-Shell.terminal.cursor.x = 0;
-Shell.terminal.cursor.y = 0;
+let cursorPad = 0;
+function displayBuff(buffer) {
+    let isHighlight = Shell.supports_fansi;
+    /**
+        * @type {Array<any>}
+        */
+    const text =  highlight(buffer).split("\n");
+    cursorPad = text.length.toString().length + 1;
+    setCursor();
+    return text.map((v, i) => {
+        if(isHighlight) {
+             return push + reset +(i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+pop+v       
+        } else {
+            return (i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+v
+        }
+    }).join("\n");
+}
+
+Shell.terminal.text(displayBuff(buffer));
+cursor.x = 0;
+cursor.y = 0;
 
 
+function setCursor() {
+    Shell.terminal.cursor.x = cursor.x + cursorPad;
+    Shell.terminal.cursor.y = cursor.y;
+}
 
+let exiting = false;
 const e = run(r => {
     exit = () => {
+        exiting = true; 
         Shell.terminal.clear();
         r(pre)
     };
@@ -166,6 +287,12 @@ const e = run(r => {
 
 Shell.keyPressed = (keycode, key) => {
     Keys[mode](keycode, key);
+    if(!exiting) {
+        if(cursor.x < 0) {
+            cursor.x = 0;
+        }
+        setCursor();
+    }
 }
 
 
