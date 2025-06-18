@@ -4,8 +4,18 @@ let buffer = "";
 const pre = Shell.terminal.text();
 Shell.terminal.clear();
 
-Shell.terminal.scroll.allow = true;
+// Shell.terminal.scroll.allow = true;
 
+let scroll = 0;
+let scrollX = 0;
+let cursorPad = 0;
+
+function lineHeight() {
+    return Shell.terminal.height-1;
+}
+function lineWidth() {
+    return Shell.terminal.width-cursorPad;
+}
 /**
     * @enum {string}
     */
@@ -13,6 +23,8 @@ const Modes = {
     Normal: "n",
     Insert: "i",
     Command: "c",
+    Delete: "d",
+    Replace: "r",
 };
 let exit
 let mode = Modes.Normal;
@@ -39,7 +51,7 @@ function add(buffer, str) {
 }
 
 const cursor = {x: 0, y: 0};
-
+                                                                                                                                                                                                        
 function del(buffer) {
     const textArray = buffer
         .split("\n")
@@ -91,6 +103,58 @@ function handleCommand(name, ...args) {
 }
 
 const Keys = {
+    r(code, key) {
+        if(code === ESCAPE) {
+            Keys.i(ESCAPE, "");
+            return;
+        }
+        if(code === ENTER || key.length === 1) {
+            Keys.n(0, "a");
+            Keys.i(BACKSPACE, "");
+            Shell.keyPressed(code, key);
+            Keys.i(ESCAPE, "");
+        }
+    },
+    d(code, key) {
+        if(code === ESCAPE) {
+            Keys.i(ESCAPE, "");
+        }
+        switch(key)  {
+            case "d": {
+                const temp = buffer.split("\n");
+                temp.splice(cursor.y, 1);
+                buffer = temp.join("\n");
+                Keys.i(ESCAPE, "");
+            }
+                break;
+            case "j": {
+                const temp = buffer.split("\n");
+                temp.splice(cursor.y, 2);
+                buffer = temp.join("\n");
+                Keys.i(ESCAPE, "");
+            }
+                break;
+            case "k": {
+                const temp = buffer.split("\n");
+                temp.splice(cursor.y-1, 2);
+                buffer = temp.join("\n");
+                Keys.i(ESCAPE, "");
+                Keys.n(0, "k");
+            }
+                break;
+            case "l":
+                Keys.n(0, "a");
+                Keys.i(BACKSPACE, "");
+                Keys.i(ESCAPE, "");
+                Keys.n(0, "l")
+                break;
+            case "h":
+                Keys.i(BACKSPACE, "");
+                Keys.i(ESCAPE, "");
+                Keys.n(0, "l")
+                break;
+        }
+    },
     n(code, key) {
         switch(code) {
             case LEFT_ARROW:
@@ -123,15 +187,26 @@ const Keys = {
                         Shell.terminal.cursor.style = "pipe";
                         mode = Modes.Insert;
                         break;
+                    case "s":
+                        Keys.d(0, "l");
+                        Keys.n(0, "i");
+                        break;
                     case "a":
                         cursor.x++;
                         Shell.terminal.cursor.style = "pipe";
                         mode = Modes.Insert;
                         break
+                    case "d":
+                        Shell.terminal.cursor.style = "underscore";
+                        mode = Modes.Delete;
+                        break;
+                    case "r":
+                        Shell.terminal.cursor.style = "underscore";
+                        mode = Modes.Replace;
+                        break;
                     case ":":
                         mode = Modes.Command;
                         commandBuffer = "";
-                        Shell.terminal.text(displayBuff(buffer, true));
                         Shell.terminal.cursor.style = "underscore";
                         break;
                     case "0":
@@ -151,6 +226,17 @@ const Keys = {
                         cursor.x = match ? match.index : cursor.x;
                     }
                         break;
+                    case "o":
+                        Shell.keyPressed(0, "$");
+                        Shell.keyPressed(0, "a");
+                        Shell.keyPressed(ENTER, "");
+                        break;
+                    case "O":
+                        Shell.keyPressed(0, "k");
+                        Shell.keyPressed(0, "$");
+                        Shell.keyPressed(0, "a");
+                        Shell.keyPressed(ENTER, "");
+                        break;
                 }
                 break;
         }
@@ -160,13 +246,13 @@ const Keys = {
             case ESCAPE:
                 mode = Modes.Normal;
                 Shell.terminal.cursor.style = "block";
-                Shell.terminal.text(displayBuff(buffer));
+                commandBuffer = "";
                 return;
             case ENTER:
                 handleCommand(...commandBuffer.trim().split(" "));
                 mode = Modes.Normal;
                 Shell.terminal.cursor.style = "block";
-                Shell.terminal.text(displayBuff(buffer));
+                commandBuffer = "";
                 return;
             case BACKSPACE:
                 commandBuffer = commandBuffer.slice(0, -1);
@@ -178,11 +264,11 @@ const Keys = {
                 break;
         }
 
-        Shell.terminal.text(displayBuff(buffer, true, commandBuffer));
     },
     i(code, key) {
         switch (code) {
             case ESCAPE:
+                buffer = buffer.split("\n").map(v=>v.trimEnd()).join("\n");
                 cursor.x--;
                 Shell.terminal.cursor.style = "block";
                 mode = Modes.Normal;           
@@ -213,7 +299,6 @@ const Keys = {
                 buffer = add(buffer, key);
                 break;
         }
-        Shell.terminal.text(displayBuff(buffer));
     }
 }
 
@@ -316,9 +401,33 @@ function highlight(code) {
 }
 
 
+function fansiSlice(str, start, end) {
+    let result = "";
+    let visible = 0;
+    let i = 0;
 
-let cursorPad = 0;
-function displayBuff(buffer, e=false, buf="") {
+    while (i < str.length && visible < end) {
+        if (str[i] === "\x1b") {
+            const escMatch = str.slice(i).match(/^\x1b[fbarg]\[[0-9A-Fa-f]{6}m/);
+            if (escMatch) {
+                result += escMatch[0]; // Keep the color code
+                i += escMatch[0].length;
+                continue;
+            }
+        }
+
+        if (visible >= start) {
+            result += str[i];
+        }
+
+        i++;
+        visible++;
+    }
+
+    return result;
+}
+
+function displayBuff(buffer, f = false, buf="") {
     let isHighlight = Shell.supports_fansi;
     /**
         * @type {Array<any>}
@@ -328,30 +437,39 @@ function displayBuff(buffer, e=false, buf="") {
     setCursor();
     let t = text.map((v, i) => {
         if(isHighlight) {
-             return push + reset +(i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+pop+v       
+             return push + reset +(i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+pop+fansiSlice(v, scrollX, scrollX+lineWidth());
         } else {
-            return (i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+v
+            return (i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+v.slice(scrollX, scrollX+lineWidth());
         }
     });
-    if(e) {
-        t = t.map((v, i) => {
-            if(i !== cursor.y) {
-                return v;
-            }
-            return " ".repeat(cursor.x + cursorPad) + (":" + buf);
-            ;
-        })
-    }
-    return t.join("\n")
+    const matches = [...t.slice(0, scroll).join("\n").matchAll(/\x1b[fbarg]\[[0-9A-Fa-f]{6}m/g)];
+    return matches.map(v=>v[0]).join("") + t.slice(scroll, lineHeight() + scroll).join("\n")+"\n"+(f?":":"")+ buf;
 }
 Shell.terminal.text(displayBuff(buffer));
 cursor.x = 0;
 cursor.y = 0;
 
 
+
 function setCursor() {
-    Shell.terminal.cursor.x = cursor.x + cursorPad;
-    Shell.terminal.cursor.y = cursor.y;
+    Shell.terminal.cursor.x = cursor.x + cursorPad - scrollX;
+    Shell.terminal.cursor.y = cursor.y - scroll;
+    while(Shell.terminal.cursor.y >= lineHeight()) {
+        scroll++;
+        Shell.terminal.cursor.y = cursor.y - scroll;
+    }
+    while(Shell.terminal.cursor.y < 0) {
+        scroll--;
+        Shell.terminal.cursor.y = cursor.y - scroll;
+    }
+    while(Shell.terminal.cursor.x >= lineWidth()+cursorPad) {
+        scrollX++;
+        Shell.terminal.cursor.x = cursor.x + cursorPad - scrollX;
+    }
+    while(Shell.terminal.cursor.x < cursorPad) {
+        scrollX--;
+        Shell.terminal.cursor.x = cursor.x + cursorPad - scrollX;
+    }
 }
 
 let exiting = false;
@@ -364,14 +482,22 @@ const e = run(r => {
 });
 
 Shell.keyPressed = (keycode, key) => {
+    if(exiting) return;
     Keys[mode](keycode, key);
     if(!exiting) {
+        const len = buffer.split("\n")[cursor.y].length
+        if(cursor.x > len) {
+            cursor.x = len;
+        }
         if(cursor.x < 0) {
             cursor.x = 0;
         }
-        setCursor();
+        Shell.terminal.text(displayBuff(buffer, mode===Modes.Command,commandBuffer));
     }
 }
 
+Shell.windowResized = () => {
+    Shell.terminal.text(displayBuff(buffer, mode===Modes.Command, commandBuffer));
+}
 
 return await e;
