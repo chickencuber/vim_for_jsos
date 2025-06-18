@@ -443,7 +443,7 @@ function displayBuff(buffer, f = false, buf="") {
         }
     });
     const matches = [...t.slice(0, scroll).join("\n").matchAll(/\x1b[fbarg]\[[0-9A-Fa-f]{6}m/g)];
-    return matches.map(v=>v[0]).join("") + t.slice(scroll, lineHeight() + scroll).join("\n")+"\n"+(f?":":"")+ buf;
+    return matches.map(v=>v[0]).join("") + t.slice(scroll, lineHeight() + scroll).join("\n")+"\n"+reset+(f?":":"")+ buf;
 }
 Shell.terminal.text(displayBuff(buffer));
 cursor.x = 0;
