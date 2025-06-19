@@ -19,13 +19,13 @@ function lineWidth() {
 /**
     * @enum {string}
     */
-const Modes = {
-    Normal: "n",
-    Insert: "i",
-    Command: "c",
-    Delete: "d",
-    Replace: "r",
-};
+    const Modes = {
+        Normal: "n",
+        Insert: "i",
+        Command: "c",
+        Delete: "d",
+        Replace: "r",
+    };
 let exit
 let mode = Modes.Normal;
 
@@ -51,7 +51,7 @@ function add(buffer, str) {
 }
 
 const cursor = {x: 0, y: 0};
-                                                                                                                                                                                                        
+
 function del(buffer) {
     const textArray = buffer
         .split("\n")
@@ -232,10 +232,10 @@ const Keys = {
                         Shell.keyPressed(ENTER, "");
                         break;
                     case "O":
-                        Shell.keyPressed(0, "k");
-                        Shell.keyPressed(0, "$");
-                        Shell.keyPressed(0, "a");
+                        Shell.keyPressed(0, "0");
+                        Shell.keyPressed(0, "i");
                         Shell.keyPressed(ENTER, "");
+                        Shell.keyPressed(UP_ARROW, "");
                         break;
                 }
                 break;
@@ -315,52 +315,56 @@ const push = `\x1ba[ffffffm`;
 const pop= `\x1br[ffffffm`;
 
 const Highlighters = {
-  JS: [
-    [fg("888888"), /(\/\*[\s\S]*?\*\/)/y],           // block comments
-    [fg("888888"), /(\/\/[^\n]*)/y],                 // line comments
-    [fg("00ff00"), /`(?:\\[\s\S]|[^\\`])*`/y],       // template literals (simplified)
-    [fg("00ff00"), /"(?:\\.|[^"\\])*"/y],            // double quoted strings
-    [fg("00ff00"), /'(?:\\.|[^'\\])*'/y],            // single quoted strings
-    [fg("ff8800"), /\/(?!\/)(?:\\\/|[^\n\/])+\/[gimsuy]*/y], // regex literals
-    [fg("ff00ff"), /\b(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/y], // numbers
-    [fg("00ffff"), /\b(get|set|constructor|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|let|new|null|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)\b/y], // keywords
-    [fg("00ffff"), /\b(true|false)\b/y],             // booleans
-    [fg("ffff00"), /[+\-*/=<>!%&|^~?:]+/y],          // operators
-    [fg("ffaa00"), /[()[\]{};,.]/y],                  // brackets and punctuation
-  ],
-  JSON: [
-    [fg("00ff00"), /"(?:\\.|[^"\\])*"/y],             // strings
-    [fg("ff00ff"), /\b(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/y], // numbers
-    [fg("00ffff"), /\b(true|false|null)\b/y],          // booleans & null
-    [fg("ffaa00"), /[()[\]{},]/y],                     // brackets
-  ],
+    JS: [
+        [fg("888888"), /(\/\*[\s\S]*?\*\/)/y],           // block comments
+        [fg("888888"), /(\/\/[^\n]*)/y],                 // line comments
+        [fg("00ff00"), /`(?:\\[\s\S]|[^\\`])*`/y, (fullMatch) => {
+            return fullMatch.replace(/\$\{([\s\S]*?)\}/g, (_, inner) => {
+                return '${' + reset + fansiHighlight(inner, Highlighters.JS) + fg("00ff00") + '}';
+            });
+        }],      // template literals 
+        [fg("00ff00"), /"(?:\\.|[^"\\])*"/y],            // double quoted strings
+        [fg("00ff00"), /'(?:\\.|[^'\\])*'/y],            // single quoted strings
+        [fg("ff8800"), /\/(?!\/)(?:\\\/|[^\n\/])+\/[gimsuy]*/y], // regex literals
+        [fg("ff00ff"), /\b(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/y], // numbers
+        [fg("00ffff"), /\b(get|set|constructor|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|let|new|null|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)\b/y], // keywords
+        [fg("00ffff"), /\b(true|false)\b/y],             // booleans
+        [fg("ffff00"), /[+\-*/=<>!%&|^~?:]+/y],          // operators
+        [fg("ffaa00"), /[()[\]{};,.]/y],                  // brackets and punctuation
+    ],
+    JSON: [
+        [fg("00ff00"), /"(?:\\.|[^"\\])*"/y],             // strings
+        [fg("ff00ff"), /\b(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/y], // numbers
+        [fg("00ffff"), /\b(true|false|null)\b/y],          // booleans & null
+        [fg("ffaa00"), /[()[\]{},]/y],                     // brackets
+    ],
 };
 
 function tokenize(code, tokenDef) {
-  let tokens = [];
-  let pos = 0;
+    let tokens = [];
+    let pos = 0;
 
-  while (pos < code.length) {
-    let matched = false;
+    while (pos < code.length) {
+        let matched = false;
 
-    for (const [color, regex] of tokenDef) {
-      regex.lastIndex = pos;
-      const match = regex.exec(code);
-      if (match && match.index === pos) {
-        tokens.push({color, value: match[0]});
-        pos += match[0].length;
-        matched = true;
-        break;
-      }
+        for (const [color, regex, post = x=>x] of tokenDef) {
+            regex.lastIndex = pos;
+            const match = regex.exec(code);
+            if (match && match.index === pos) {
+                tokens.push({color, value: post(...match)});
+                pos += match[0].length;
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched) {
+            // Safety fallback, avoid infinite loop:
+            tokens.push({color: '', value: code[pos]});
+            pos++;
+        }
     }
-
-    if (!matched) {
-      // Safety fallback, avoid infinite loop:
-      tokens.push({color: '', value: code[pos]});
-      pos++;
-    }
-  }
-  return tokens;
+    return tokens;
 }
 
 function fansiHighlight(code, rules) {
@@ -370,7 +374,7 @@ function fansiHighlight(code, rules) {
         if(token.color === "") {
             output += token.value;
         } else {
-        output += token.color + token.value + reset;
+            output += token.color + token.value + reset;
         }
     }
     return output;
@@ -415,12 +419,12 @@ function displayBuff(buffer, f = false, buf="") {
     /**
         * @type {Array<any>}
         */
-    const text =  highlight(buffer).split("\n");
+        const text =  highlight(buffer).split("\n");
     cursorPad = text.length.toString().length + 1;
     setCursor();
     let t = text.map((v, i) => {
         if(isHighlight) {
-             return push + reset +(i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+pop+fansiSlice(v, scrollX, scrollX+lineWidth());
+            return push + reset +(i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+pop+fansiSlice(v, scrollX, scrollX+lineWidth());
         } else {
             return (i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+v.slice(scrollX, scrollX+lineWidth());
         }
@@ -438,10 +442,10 @@ cursor.x = 0;
 cursor.y = 0;
 
 function padEnd(arr, targetLength, padValue) {
-  while (arr.length < targetLength) {
-    arr.push(padValue);
-  }
-  return arr;
+    while (arr.length < targetLength) {
+        arr.push(padValue);
+    }
+    return arr;
 }
 
 
@@ -479,7 +483,14 @@ Shell.keyPressed = (keycode, key) => {
     if(exiting) return;
     Keys[mode](keycode, key);
     if(!exiting) {
-        const len = buffer.split("\n")[cursor.y].length
+        const d = buffer.split("\n");
+        if(cursor.y >= d.length) {
+            cursor.y = d.length-1;
+        }
+        if(cursor.y < 0) {
+            cursor.y = 0;
+        }
+        const len = d[cursor.y].length
         if(cursor.x > len) {
             cursor.x = len;
         }
