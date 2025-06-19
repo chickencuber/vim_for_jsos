@@ -5,6 +5,8 @@ const pre = Shell.terminal.text();
 Shell.terminal.clear();
 
 // Shell.terminal.scroll.allow = true;
+Shell.terminal.scroll.x = 0;
+Shell.terminal.scroll.y = 0;
 
 let scroll = 0;
 let scrollX = 0;
