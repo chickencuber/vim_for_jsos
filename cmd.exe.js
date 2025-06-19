@@ -401,46 +401,30 @@ function highlight(code) {
 }
 
 
-function tokenizeFansi(str) {
-  const tokens = [];
-  let pos = 0;
-  while (pos < str.length) {
-    if (str[pos] === "\x1b") {
-      let end = str.indexOf("m", pos);
-      if (end === -1) end = str.length;
-      tokens.push({ type: "esc", value: str.slice(pos, end + 1) });
-      pos = end + 1;
-    } else {
-      tokens.push({ type: "char", value: str[pos] });
-      pos++;
-    }
-  }
-  return tokens;
-}
-
-function fansiSliceTokens(tokens, start, end) {
-  let visibleCount = 0;
-  const sliceTokens = [];
-  for (const t of tokens) {
-    if (t.type === "esc") {
-      sliceTokens.push(t.value);
-    } else {
-      if (visibleCount >= start && visibleCount < end) {
-        sliceTokens.push(t.value);
-      }
-      visibleCount++;
-      if (visibleCount >= end) break;
-    }
-  }
-  return sliceTokens.join("");
-}
-
-let cache = {};
 function fansiSlice(str, start, end) {
-    if(!cache[str + "-" + start + "-" + end]) {
-        cache[str + "-" + start + "-" + end] = fansiSliceTokens(tokenizeFansi(str), start, end);
+    let result = "";
+    let visible = 0;
+    let i = 0;
+
+    while (i < str.length && visible < end) {
+        if (str[i] === "\x1b") {
+            const escMatch = str.slice(i).match(/^\x1b[fbarg]\[[0-9A-Fa-f]{6}m/);
+            if (escMatch) {
+                result += escMatch[0]; // Keep the color code
+                i += escMatch[0].length;
+                continue;
+            }
+        }
+
+        if (visible >= start) {
+            result += str[i];
+        }
+
+        i++;
+        visible++;
     }
-    return cache[str + "-" + start + "-" + end];
+
+    return result;
 }
 
 function displayBuff(buffer, f = false, buf="") {
