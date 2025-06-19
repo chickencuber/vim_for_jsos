@@ -315,81 +315,64 @@ const push = `\x1ba[ffffffm`;
 const pop= `\x1br[ffffffm`;
 
 const Highlighters = {
-    JS: [
-        // Block comments
-        [/(\/\*[\s\S]*?\*\/)/, `${fg("888888")}$1${reset}`],
-        // Line comments
-        [/(\/\/[^\n]*)/, `${fg("888888")}$1${reset}`],
-        // Template literals
-        [/(`(?:\\[\s\S]|[^\\`])*`)/, (m) => {
-            m = m.replaceAll(/((?<!\\)(?:\\\\)*\$\{[\s\S]*?\})/g, (_, a) => {
-                return `${push+reset}${fansiHighlight(a, Highlighters.JS)}${pop}`
-            }); 
-            return `${fg("00ff00")}${m}${reset}`
-        }],
-        // Double-quoted strings (no multiline)
-        [/("(?:(?:\\.)|[^\n\r"\\])*")/, `${fg("00ff00")}$1${reset}`],
-
-        // Single-quoted strings (no multiline)
-        [/('(?:(?:\\.)|[^\n\r'\\])*')/, `${fg("00ff00")}$1${reset}`],
-        [/\/(?!\/)(?:\\\/|[^\n\/])+\/[gimsuy]*/g, `${fg("ff8800")}$&${reset}`],
-
-        // Numbers (int, float, hex, binary)
-        [/(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/, `${fg("ff00ff")}$1${reset}`],
-        // Keywords
-        [/(break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|let|new|null|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)\b/, `${fg("00ffff")}$1${reset}`],
-        // Booleans
-        [/(true|false)\b/, `${fg("00ffff")}$1${reset}`],
-        // Operators
-        [/([+\-*/=<>!%&|^~?:]+)/, `${fg("ffff00")}$1${reset}`],
-        // Brackets
-        [/([()[\]{};,.])/, `${fg("ffaa00")}$1${reset}`],
-        // Fallback
-        [/([A-Za-z_$][A-Za-z_$0-9]*)/, "$1"],
-        [/(.)/, "$1"],
-    ],
-    JSON: [
-        [/("(?:(?:\\.)|[^\n\r"\\])*")/, `${fg("00ff00")}$1${reset}`],
-
-        // Numbers (int, float, hex, binary)
-        [/(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/, `${fg("ff00ff")}$1${reset}`],
-        [/(true|false)\b/, `${fg("00ffff")}$1${reset}`],
-        [/(true|false|null)\b/, `${fg("00ffff")}$1${reset}`],
-        // Brackets
-        [/([()[\]{},])/, `${fg("ffaa00")}$1${reset}`],
-        [/(.)/, "$1"],
-    ]
+  JS: [
+    [fg("888888"), /(\/\*[\s\S]*?\*\/)/y],           // block comments
+    [fg("888888"), /(\/\/[^\n]*)/y],                 // line comments
+    [fg("00ff00"), /`(?:\\[\s\S]|[^\\`])*`/y],       // template literals (simplified)
+    [fg("00ff00"), /"(?:\\.|[^"\\])*"/y],            // double quoted strings
+    [fg("00ff00"), /'(?:\\.|[^'\\])*'/y],            // single quoted strings
+    [fg("ff8800"), /\/(?!\/)(?:\\\/|[^\n\/])+\/[gimsuy]*/y], // regex literals
+    [fg("ff00ff"), /\b(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/y], // numbers
+    [fg("00ffff"), /\b(get|set|constructor|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|let|new|null|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)\b/y], // keywords
+    [fg("00ffff"), /\b(true|false)\b/y],             // booleans
+    [fg("ffff00"), /[+\-*/=<>!%&|^~?:]+/y],          // operators
+    [fg("ffaa00"), /[()[\]{};,.]/y],                  // brackets and punctuation
+  ],
+  JSON: [
+    [fg("00ff00"), /"(?:\\.|[^"\\])*"/y],             // strings
+    [fg("ff00ff"), /\b(0[xX][\da-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/y], // numbers
+    [fg("00ffff"), /\b(true|false|null)\b/y],          // booleans & null
+    [fg("ffaa00"), /[()[\]{},]/y],                     // brackets
+  ],
 };
 
-function fansiHighlight(code, rules) {
-    let output = "";
-    let index = 0;
+function tokenize(code, tokenDef) {
+  let tokens = [];
+  let pos = 0;
 
-    while (index < code.length) {
-        let earliestMatch = null;
-        let earliestIndex = Infinity;
-        let replacement = null;
+  while (pos < code.length) {
+    let matched = false;
 
-        for (const [regex, repl] of rules) {
-            regex.lastIndex = 0; // reset state for global/multiline regex
-            const match = regex.exec(code.slice(index));
-            if (match && match.index < earliestIndex) {
-                earliestMatch = match;
-                earliestIndex = match.index;
-                replacement =  match[0].replace(regex, repl);
-            }
-        }
-
-        if (!earliestMatch) {
-            output += code.slice(index);
-            break;
-        }
-
-        output += code.slice(index, index + earliestIndex); // unhighlighted part
-        output += replacement;
-        index += earliestIndex + earliestMatch[0].length;
+    for (const [color, regex] of tokenDef) {
+      regex.lastIndex = pos;
+      const match = regex.exec(code);
+      if (match && match.index === pos) {
+        tokens.push({color, value: match[0]});
+        pos += match[0].length;
+        matched = true;
+        break;
+      }
     }
 
+    if (!matched) {
+      // Safety fallback, avoid infinite loop:
+      tokens.push({color: '', value: code[pos]});
+      pos++;
+    }
+  }
+  return tokens;
+}
+
+function fansiHighlight(code, rules) {
+    const tokens = tokenize(code, rules);
+    let output = ""
+    for(const token of tokens) {
+        if(token.color === "") {
+            output += token.value;
+        } else {
+        output += token.color + token.value + reset;
+        }
+    }
     return output;
 }
 
@@ -442,13 +425,24 @@ function displayBuff(buffer, f = false, buf="") {
             return (i+1).toString().padEnd(cursorPad-1, " ") + "\u2502"+v.slice(scrollX, scrollX+lineWidth());
         }
     });
-    const matches = [...t.slice(0, scroll).join("\n").matchAll(/\x1b[fbarg]\[[0-9A-Fa-f]{6}m/g)];
-    return matches.map(v=>v[0]).join("") + t.slice(scroll, lineHeight() + scroll).join("\n")+"\n"+(isHighlight?reset:"")+(f?":":"")+ buf;
+    let matches = [];
+    if(isHighlight){
+        matches = [...t.slice(0, scroll).join("\n").matchAll(/\x1b[fbarg]\[[0-9A-Fa-f]{6}m/g)];
+    }
+    const v = padEnd(t.slice(scroll, lineHeight() + scroll), lineHeight() + 1, "");
+    v[v.length-1]= (isHighlight?reset:"")+(f?":":"")+ buf;
+    return matches.map(v=>v[0]).join("") + v.join("\n");
 }
 Shell.terminal.text(displayBuff(buffer));
 cursor.x = 0;
 cursor.y = 0;
 
+function padEnd(arr, targetLength, padValue) {
+  while (arr.length < targetLength) {
+    arr.push(padValue);
+  }
+  return arr;
+}
 
 
 function setCursor() {
