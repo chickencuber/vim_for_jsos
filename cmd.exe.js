@@ -362,7 +362,7 @@ function tokenize(code, tokenDef) {
 
         if (!matched) {
             // Safety fallback, avoid infinite loop:
-            tokens.push({color: '', value: code[pos]});
+            tokens.push({color: fg("ffffff"), value: code[pos]});
             pos++;
         }
     }
